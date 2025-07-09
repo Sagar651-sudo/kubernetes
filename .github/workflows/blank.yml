@@ -1,0 +1,62 @@
+name: Deploy Nginx to EKS
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  CLUSTER_NAME: "eks-cluster"  # Replace with your EKS cluster name
+  AWS_REGION: "ap-south-1"           # Replace with your region
+  NAMESPACE: "default"              # Or create a specific namespace
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+       aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+       aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+       aws-region: ${{ env.AWS_REGION }}
+
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+
+    - name: Authenticate with EKS
+      uses: aws-actions/amazon-eks-get-token@v1
+      with:
+        cluster-name: ${{ env.CLUSTER_NAME }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Configure kubeconfig
+      run: |
+        aws eks update-kubeconfig \
+          --name ${{ env.CLUSTER_NAME }} \
+          --region ${{ env.AWS_REGION }}
+
+    - name: Deploy Nginx manifests
+      run: |
+        # Create namespace if not using default
+        if [ "${{ env.NAMESPACE }}" != "default" ]; then
+          kubectl create namespace ${{ env.NAMESPACE }} || true
+        fi
+
+        # Apply Kubernetes manifests
+        kubectl apply -f k8s/nginx-deployment.yaml -n ${{ env.NAMESPACE }}
+        kubectl apply -f k8s/nginx-service.yaml -n ${{ env.NAMESPACE }}
+        kubectl apply -f k8s/nginx-ingress.yaml -n ${{ env.NAMESPACE }}
+
+        # Verify deployment
+        kubectl rollout status deployment/nginx-deployment -n ${{ env.NAMESPACE }}
+        kubectl get pods,svc,ingress -n ${{ env.NAMESPACE }}
