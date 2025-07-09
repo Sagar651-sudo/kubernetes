@@ -62,10 +62,10 @@ jobs:
     - name: Deploy Nginx using your manifest files
       run: |
         # Apply deployment
-        kubectl apply -f $MANIFESTS_DIR/deployment.yaml -n $NAMESPACE
+        kubectl apply -f $MANIFESTS_DIR/nginx-deployment.yaml -n $NAMESPACE
         
         # Apply service
-        kubectl apply -f $MANIFESTS_DIR/service.yaml -n $NAMESPACE
+        kubectl apply -f $MANIFESTS_DIR/nginx-service.yaml -n $NAMESPACE
 
     - name: Verify deployment
       run: |
