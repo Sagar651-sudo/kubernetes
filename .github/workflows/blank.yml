@@ -1,4 +1,4 @@
-name: Deploy Nginx to EKS
+name: Deploy Nginx to EKS using existing manifests
 
 on:
   push:
@@ -6,57 +6,77 @@ on:
   workflow_dispatch:
 
 env:
-  CLUSTER_NAME: "eks-cluster"  # Replace with your EKS cluster name
-  AWS_REGION: "ap-south-1"           # Replace with your region
-  NAMESPACE: "default"              # Or create a specific namespace
+  AWS_REGION: ap-south-1                # Update with your region
+  EKS_CLUSTER_NAME: eks-cluster    # Update with your EKS cluster name
+  NAMESPACE: default                     # Or your preferred namespace
+  MANIFESTS_DIR: k8s                     # Directory containing your YAML files
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
+      id-token: write
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
 
+    # Option 1: Using AWS Access Keys (store these in GitHub secrets)
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
-       aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-       aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-       aws-region: ${{ env.AWS_REGION }}
-
-    - name: Install kubectl
-      uses: azure/setup-kubectl@v3
-      with:
-        version: 'latest'
-
-    - name: Authenticate with EKS
-      uses: aws-actions/amazon-eks-get-credentials@v1
-      with:
-        cluster-name: ${{ env.CLUSTER_NAME }}
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
+
+    # Option 2: Using OIDC (recommended - configure IAM role first)
+    # - name: Configure AWS credentials
+    #   uses: aws-actions/configure-aws-credentials@v2
+    #   with:
+    #     role-to-assume: ${{ secrets.AWS_IAM_ROLE }}
+    #     aws-region: ${{ env.AWS_REGION }}
+
+    - name: Install kubectl and aws-iam-authenticator
+      run: |
+        # Install kubectl
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/
+        
+        # Install aws-iam-authenticator
+        curl -o aws-iam-authenticator https://amazon-eks.s3.us-west-2.amazonaws.com/1.21.2/2021-07-05/bin/linux/amd64/aws-iam-authenticator
+        chmod +x aws-iam-authenticator
+        sudo mv aws-iam-authenticator /usr/local/bin/
 
     - name: Configure kubeconfig
       run: |
         aws eks update-kubeconfig \
-          --name ${{ env.CLUSTER_NAME }} \
-          --region ${{ env.AWS_REGION }}
+          --name $EKS_CLUSTER_NAME \
+          --region $AWS_REGION
 
-    - name: Deploy Nginx manifests
+    - name: Create namespace if it doesn't exist
       run: |
-        # Create namespace if not using default
-        if [ "${{ env.NAMESPACE }}" != "default" ]; then
-          kubectl create namespace ${{ env.NAMESPACE }} || true
-        fi
+        kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
 
-        # Apply Kubernetes manifests
-        kubectl apply -f k8s/nginx-deployment.yaml -n ${{ env.NAMESPACE }}
-        kubectl apply -f k8s/nginx-service.yaml -n ${{ env.NAMESPACE }}
-        kubectl apply -f k8s/nginx-ingress.yaml -n ${{ env.NAMESPACE }}
+    - name: Deploy Nginx using your manifest files
+      run: |
+        # Apply deployment
+        kubectl apply -f $MANIFESTS_DIR/deployment.yaml -n $NAMESPACE
+        
+        # Apply service
+        kubectl apply -f $MANIFESTS_DIR/service.yaml -n $NAMESPACE
 
-        # Verify deployment
-        kubectl rollout status deployment/nginx-deployment -n ${{ env.NAMESPACE }}
-        kubectl get pods,svc,ingress -n ${{ env.NAMESPACE }}
+    - name: Verify deployment
+      run: |
+        echo "Deployment status:"
+        kubectl get deployments -n $NAMESPACE -o wide
+        
+        echo "Pod status:"
+        kubectl get pods -n $NAMESPACE -o wide
+        
+        echo "Service status:"
+        kubectl get services -n $NAMESPACE -o wide
+        
+        echo "Ingress status:"
+        kubectl get ingress -n $NAMESPACE -o wide 2>/dev/null || echo "No ingress found"
