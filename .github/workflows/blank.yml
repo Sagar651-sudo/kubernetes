@@ -34,7 +34,7 @@ jobs:
         version: 'latest'
 
     - name: Authenticate with EKS
-      uses: aws-actions/amazon-eks-get-token@v1
+      uses: aws-actions/amazon-eks-get-credentials@v1
       with:
         cluster-name: ${{ env.CLUSTER_NAME }}
         aws-region: ${{ env.AWS_REGION }}
